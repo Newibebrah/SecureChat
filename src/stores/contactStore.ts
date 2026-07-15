@@ -11,12 +11,13 @@ export interface ContactPayload {
   safety_number: string;
 }
 
-export type View = "chats" | "contacts" | "add-contact" | "profile" | "verify-contact";
+export type View = "chats" | "contacts" | "add-contact" | "profile" | "verify-contact" | "chat";
 
 interface ContactStore {
   contacts: ContactPayload[];
   currentView: View;
   pendingContact: ContactPayload | null; // for verification flow
+  chatContact: ContactPayload | null;
   loading: boolean;
   error: string | null;
 
@@ -28,6 +29,7 @@ interface ContactStore {
   updateNickname: (onion: string, nickname: string) => Promise<void>;
   resolveQr: (qrData: string) => Promise<ContactPayload>;
   setPendingContact: (c: ContactPayload | null) => void;
+  openChat: (contact: ContactPayload) => void;
   clearError: () => void;
 }
 
@@ -35,6 +37,7 @@ export const useContactStore = create<ContactStore>((set, get) => ({
   contacts: [],
   currentView: "chats",
   pendingContact: null,
+  chatContact: null,
   loading: false,
   error: null,
 
@@ -97,5 +100,6 @@ export const useContactStore = create<ContactStore>((set, get) => ({
   },
 
   setPendingContact: (c) => set({ pendingContact: c }),
+  openChat: (contact) => set({ chatContact: contact, currentView: "chat" }),
   clearError: () => set({ error: null }),
 }));

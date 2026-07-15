@@ -5,10 +5,12 @@ function ContactItem({
   contact,
   onDelete,
   onVerify,
+  onChat,
 }: {
   contact: ContactPayload;
   onDelete: (onion: string) => void;
   onVerify: (onion: string) => void;
+  onChat: (contact: ContactPayload) => void;
 }) {
   const displayName =
     contact.local_nickname || contact.onion_address.slice(0, 16) + "...";
@@ -27,7 +29,7 @@ function ContactItem({
         </div>
       </div>
 
-      <div className="contact-item-body">
+      <div className="contact-item-body" onClick={() => onChat(contact)} style={{ cursor: "pointer" }}>
         <div className="contact-item-name">{displayName}</div>
         <div className="contact-item-onion">{truncatedOnion}</div>
       </div>
@@ -59,7 +61,7 @@ function ContactItem({
 }
 
 export function ContactList() {
-  const { contacts, fetchContacts, deleteContact, verifyContact, setView } =
+  const { contacts, fetchContacts, deleteContact, verifyContact, openChat, setView } =
     useContactStore();
 
   useEffect(() => {
@@ -107,6 +109,7 @@ export function ContactList() {
               contact={c}
               onDelete={handleDelete}
               onVerify={handleVerify}
+              onChat={openChat}
             />
           ))}
         </div>

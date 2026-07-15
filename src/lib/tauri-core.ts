@@ -279,6 +279,10 @@ export async function invoke<T>(
       }
     }
 
+    case "send_message": {
+      return undefined as T;
+    }
+
     default:
       console.warn(`[Tauri Web] Unhandled invoke: "${cmd}"`);
       throw new Error(
