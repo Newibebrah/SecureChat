@@ -207,10 +207,19 @@ function MainContent() {
 
 export function Layout() {
   const { fetchContacts } = useContactStore();
+  const { identity } = useIdentityStore();
+  const { startPolling, stopPolling } = useMessageStore();
 
   useEffect(() => {
     fetchContacts();
   }, []);
+
+  useEffect(() => {
+    if (identity) {
+      startPolling(identity.onion_address);
+      return () => stopPolling();
+    }
+  }, [identity?.onion_address]);
 
   return (
     <div className="app-layout">

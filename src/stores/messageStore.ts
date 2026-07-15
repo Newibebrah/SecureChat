@@ -51,10 +51,13 @@ function generateId(): string {
   return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 9);
 }
 
+const POLL_INTERVAL = 3000;
+
 interface MessageStore {
   messages: Message[];
   unreadCounts: Record<string, number>;
   selectedContact: string | null;
+  lastPollTimestamp: number;
 
   loadMessages: () => void;
   sendMessage: (contactOnion: string, content: string, myOnion: string) => Promise<void>;
@@ -63,6 +66,8 @@ interface MessageStore {
   markConversationRead: (contactOnion: string) => void;
   setSelectedContact: (onion: string | null) => void;
   addIncomingMessage: (msg: Message) => void;
+  startPolling: (myOnion: string) => void;
+  stopPolling: () => void;
 }
 
 let bc: BroadcastChannel | null = null;
@@ -72,8 +77,60 @@ try {
   // BroadcastChannel not available
 }
 
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+async function pollMessages(myOnion: string, lastTs: number): Promise<void> {
+  try {
+    const url = `/api/messages?onion=${encodeURIComponent(myOnion)}&after=${lastTs}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.messages || data.messages.length === 0) return;
+
+    const state = useMessageStore.getState();
+    const knownIds = new Set(state.messages.map((m) => m.id));
+    let newMessages: Message[] = [];
+    let maxTs = state.lastPollTimestamp;
+
+    for (const raw of data.messages) {
+      if (raw.timestamp > maxTs) maxTs = raw.timestamp;
+      const msgId = raw.id || `${raw.from}-${raw.timestamp}`;
+      if (knownIds.has(msgId)) continue;
+
+      const msg: Message = {
+        id: msgId,
+        contactOnion: raw.from,
+        content: raw.content,
+        senderOnion: raw.from,
+        timestamp: raw.timestamp,
+        isOutgoing: false,
+        status: "delivered",
+      };
+      newMessages.push(msg);
+    }
+
+    if (newMessages.length > 0) {
+      const all = [...state.messages, ...newMessages];
+      saveToStorage(all);
+      const unread = { ...state.unreadCounts };
+      for (const m of newMessages) {
+        unread[m.contactOnion] = (unread[m.contactOnion] || 0) + 1;
+      }
+      saveUnread(unread);
+      useMessageStore.setState({
+        messages: all,
+        unreadCounts: unread,
+        lastPollTimestamp: maxTs,
+      });
+    } else {
+      useMessageStore.setState({ lastPollTimestamp: maxTs });
+    }
+  } catch {
+    // Poll failed silently
+  }
+}
+
 export const useMessageStore = create<MessageStore>((set, get) => {
-  // Listen for messages from other tabs
   if (bc) {
     bc.onmessage = (event) => {
       const data = event.data;
@@ -101,7 +158,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
     };
   }
 
-  // Listen for storage events from other tabs (fallback)
   window.addEventListener("storage", (event) => {
     if (event.key === STORAGE_KEY && event.newValue) {
       try {
@@ -127,6 +183,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
     messages: loadFromStorage(),
     unreadCounts: loadUnread(),
     selectedContact: null,
+    lastPollTimestamp: Date.now(),
 
     loadMessages: () => {
       set({ messages: loadFromStorage(), unreadCounts: loadUnread() });
@@ -185,15 +242,17 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         if (!grouped[msg.contactOnion]) grouped[msg.contactOnion] = [];
         grouped[msg.contactOnion].push(msg);
       }
-      return Object.entries(grouped).map(([onion, msgs]) => {
-        const sorted = msgs.sort((a, b) => b.timestamp - a.timestamp);
-        return {
-          contactOnion: onion,
-          lastMessage: sorted[0].content,
-          lastTimestamp: sorted[0].timestamp,
-          unread: state.unreadCounts[onion] || 0,
-        };
-      }).sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+      return Object.entries(grouped)
+        .map(([onion, msgs]) => {
+          const sorted = msgs.sort((a, b) => b.timestamp - a.timestamp);
+          return {
+            contactOnion: onion,
+            lastMessage: sorted[0].content,
+            lastTimestamp: sorted[0].timestamp,
+            unread: state.unreadCounts[onion] || 0,
+          };
+        })
+        .sort((a, b) => b.lastTimestamp - a.lastTimestamp);
     },
 
     getConversation: (contactOnion) => {
@@ -220,6 +279,22 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         unread[msg.contactOnion] = (unread[msg.contactOnion] || 0) + 1;
         saveUnread(unread);
         set({ messages: newMessages, unreadCounts: unread });
+      }
+    },
+
+    startPolling: (myOnion) => {
+      get().stopPolling();
+      const lastTs = get().lastPollTimestamp;
+      pollTimer = setInterval(() => {
+        pollMessages(myOnion, get().lastPollTimestamp);
+      }, POLL_INTERVAL);
+      pollMessages(myOnion, lastTs);
+    },
+
+    stopPolling: () => {
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
       }
     },
   };

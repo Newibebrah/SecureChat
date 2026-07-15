@@ -282,6 +282,23 @@ export async function invoke<T>(
     }
 
     case "send_message": {
+      const contactOnion = args?.contactOnion as string;
+      const content = args?.content as string;
+      if (!activeIdentity) throw new Error("No identity loaded");
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: contactOnion,
+          from: activeIdentity.onion_address,
+          content,
+          timestamp: Date.now(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to send message");
+      }
       return undefined as T;
     }
 
