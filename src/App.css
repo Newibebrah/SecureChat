@@ -1335,3 +1335,92 @@ body {
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+/* ===== UPLOAD QR SECTION ===== */
+.upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  background: var(--bg-card);
+}
+
+.upload-zone:hover {
+  border-color: var(--accent);
+  background: rgba(108, 92, 231, 0.04);
+}
+
+.upload-input-hidden {
+  display: none;
+}
+
+.upload-icon {
+  font-size: 40px;
+  display: block;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.upload-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.upload-text strong {
+  color: var(--accent);
+}
+
+.upload-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  opacity: 0.6;
+}
+
+.upload-processing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload-processing .spinner {
+  width: 32px;
+  height: 32px;
+}
+
+.upload-file-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.upload-file-icon {
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+
+.upload-file-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.upload-file-size {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.upload-preview-box {
+  display: none;
+}
