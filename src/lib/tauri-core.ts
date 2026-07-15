@@ -4,6 +4,76 @@ interface IdentityPayload {
   fingerprint: string;
 }
 
+interface StoredContact {
+  id: number;
+  onion_address: string;
+  public_key_hex: string;
+  local_nickname: string;
+  safety_verified: boolean;
+  created_at: string;
+  safety_number: string;
+}
+
+let activeIdentity: IdentityPayload | null = null;
+
+function randomHex(bytes: number): string {
+  const arr = new Uint8Array(bytes);
+  crypto.getRandomValues(arr);
+  return Array.from(arr)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function randomBase32(length: number): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz234567";
+  const arr = new Uint8Array(length);
+  crypto.getRandomValues(arr);
+  return Array.from(arr)
+    .map((b) => chars[b % 32])
+    .join("");
+}
+
+async function computeFingerprint(pubkeyHex: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(pubkeyHex));
+  const first8 = new Uint8Array(hashBuffer).slice(0, 8);
+  const hex = Array.from(first8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hex.replace(/(.{4})/g, "$1 ").trim().toUpperCase();
+}
+
+function hexToBase64(hex: string): string {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2)
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  return btoa(Array.from(bytes).map((b) => String.fromCharCode(b)).join(""));
+}
+
+function base64ToHex(b64: string): string {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function generateIdentity(): IdentityPayload {
+  const pubkeyHex = randomHex(32);
+  const onionAddr = randomBase32(56) + ".onion";
+  return {
+    onion_address: onionAddr,
+    public_key: pubkeyHex,
+    fingerprint: "ABCD EFGH IJKL MNOP",
+  };
+}
+
+async function finalizeIdentity(identity: IdentityPayload): Promise<IdentityPayload> {
+  identity.fingerprint = await computeFingerprint(identity.public_key);
+  return identity;
+}
+
 function getStoredIdentity(): IdentityPayload | null {
   try {
     const data = localStorage.getItem("anon-chat-identity");
@@ -27,10 +97,39 @@ function setStoredPasswordHash(hash: string) {
 
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(password),
+  );
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function getContacts(): StoredContact[] {
+  try {
+    const data = localStorage.getItem("anon-chat-contacts");
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveContacts(contacts: StoredContact[]) {
+  localStorage.setItem("anon-chat-contacts", JSON.stringify(contacts));
+}
+
+async function computeSafetyNumber(pubkeyHex: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(pubkeyHex),
+  );
+  const first8 = new Uint8Array(hashBuffer).slice(0, 8);
+  const hex = Array.from(first8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hex.replace(/(.{4})/g, "$1 ").trim().toUpperCase();
 }
 
 export async function invoke<T>(
@@ -45,7 +144,7 @@ export async function invoke<T>(
     }
 
     case "get_active_identity": {
-      return getStoredIdentity() as T;
+      return activeIdentity as T;
     }
 
     case "create_identity": {
@@ -53,12 +152,9 @@ export async function invoke<T>(
       if (!password) throw new Error("Password required");
       const hash = await hashPassword(password);
       setStoredPasswordHash(hash);
-      const identity: IdentityPayload = {
-        onion_address: "demo.onion",
-        public_key: "mock-public-key-for-demo-purposes-only",
-        fingerprint: "ABCD EFGH IJKL MNOP",
-      };
+      const identity = await finalizeIdentity(generateIdentity());
       setStoredIdentity(identity);
+      activeIdentity = identity;
       return identity as T;
     }
 
@@ -70,6 +166,7 @@ export async function invoke<T>(
       if (hash !== storedHash) throw new Error("Invalid password");
       const identity = getStoredIdentity();
       if (!identity) throw new Error("No identity data");
+      activeIdentity = identity;
       return identity as T;
     }
 
@@ -82,45 +179,103 @@ export async function invoke<T>(
     }
 
     case "generate_own_qr_code": {
-      const identity = getStoredIdentity();
-      return (identity?.onion_address || "demo.onion") as T;
+      if (!activeIdentity) throw new Error("No identity loaded");
+      return JSON.stringify({
+        onion: activeIdentity.onion_address,
+        pubkey: hexToBase64(activeIdentity.public_key),
+      }) as T;
     }
 
     case "list_contacts": {
-      return [] as T;
+      return getContacts() as T;
     }
 
     case "add_contact": {
-      return args as T;
+      const onionAddress = args?.onionAddress as string;
+      const publicKeyB64 = args?.publicKeyB64 as string;
+      const localNickname = args?.localNickname as string;
+      if (!onionAddress || !publicKeyB64)
+        throw new Error("onionAddress and publicKeyB64 are required");
+
+      const publicKeyHex = base64ToHex(publicKeyB64);
+      const safetyNumber = await computeSafetyNumber(publicKeyHex);
+      const contacts = getContacts();
+
+      if (contacts.some((c) => c.onion_address === onionAddress))
+        throw new Error("Contact already exists");
+
+      const contact: StoredContact = {
+        id: Date.now(),
+        onion_address: onionAddress,
+        public_key_hex: publicKeyHex,
+        local_nickname: localNickname || "",
+        safety_verified: false,
+        created_at: new Date().toISOString(),
+        safety_number: safetyNumber,
+      };
+      contacts.push(contact);
+      saveContacts(contacts);
+      return contact as T;
     }
 
     case "delete_contact": {
+      const onionAddress = args?.onionAddress as string;
+      const contacts = getContacts().filter(
+        (c) => c.onion_address !== onionAddress,
+      );
+      saveContacts(contacts);
       return undefined as T;
     }
 
     case "verify_contact": {
-      return args as T;
+      const onionAddress = args?.onionAddress as string;
+      const contacts = getContacts();
+      const idx = contacts.findIndex(
+        (c) => c.onion_address === onionAddress,
+      );
+      if (idx === -1) throw new Error("Contact not found");
+      contacts[idx] = { ...contacts[idx], safety_verified: true };
+      saveContacts(contacts);
+      return contacts[idx] as T;
     }
 
     case "update_nickname": {
-      return args as T;
+      const onionAddress = args?.onionAddress as string;
+      const localNickname = args?.localNickname as string;
+      const contacts = getContacts();
+      const idx = contacts.findIndex(
+        (c) => c.onion_address === onionAddress,
+      );
+      if (idx === -1) throw new Error("Contact not found");
+      contacts[idx] = { ...contacts[idx], local_nickname: localNickname };
+      saveContacts(contacts);
+      return contacts[idx] as T;
     }
 
     case "resolve_contact_qr": {
       const qrData = args?.qrData as string;
       try {
         const parsed = JSON.parse(qrData);
+        const onionAddress = parsed.onion as string;
+        const pubkeyB64 = parsed.pubkey as string;
+        if (!onionAddress || !pubkeyB64)
+          throw new Error("Missing 'onion' or 'pubkey' in QR data");
+        const publicKeyHex = base64ToHex(pubkeyB64);
+        const safetyNumber = await computeSafetyNumber(publicKeyHex);
         return {
           id: Date.now(),
-          onion_address: parsed.onion || "unknown.onion",
-          public_key_hex: parsed.pubkey || "",
+          onion_address: onionAddress,
+          public_key_hex: publicKeyHex,
           local_nickname: "",
           safety_verified: false,
           created_at: new Date().toISOString(),
-          safety_number: "ABCD EFGH IJKL MNOP QRST UVWX YZ12 3456",
+          safety_number: safetyNumber,
         } as T;
-      } catch {
-        throw new Error("Invalid QR data format");
+      } catch (err) {
+        throw new Error(
+          "Invalid QR data: " +
+            (err instanceof Error ? err.message : String(err)),
+        );
       }
     }
 
