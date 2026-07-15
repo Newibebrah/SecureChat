@@ -1,64 +1,50 @@
-import { useEffect } from "react";
-import { TorStatus } from "./components/TorStatus";
+import { useState } from "react";
+import { Landing } from "./components/Landing";
 import { IdentitySetup } from "./components/IdentitySetup";
 import { UnlockScreen } from "./components/UnlockScreen";
 import { Layout } from "./components/Layout";
 import { useIdentityStore } from "./stores/identityStore";
-import { initTorEventListener, useTorStore } from "./stores/torStore";
+import { useTorStore } from "./stores/torStore";
 import "./App.css";
 
 function App() {
-  const { appState, checkDatabase } = useIdentityStore();
+  const [page, setPage] = useState<"landing" | "setup" | "unlock" | null>(
+    "landing",
+  );
+  const { appState } = useIdentityStore();
   const { status } = useTorStore();
-
-  useEffect(() => {
-    initTorEventListener();
-    checkDatabase();
-  }, []);
-
-  const showTorScreen =
-    status.status === "offline" || status.status === "bootstrapping";
 
   const isAppReady = appState === "ready";
 
-  // When the full app is ready, render with unbounded width
-  if (isAppReady && status.status !== "error") {
+  if (isAppReady) {
     return <Layout />;
   }
 
-  // Pre-ready screens use the centered constrained layout
+  if (page === "landing") {
+    return (
+      <Landing
+        onNew={() => setPage("setup")}
+        onExisting={() => setPage("unlock")}
+      />
+    );
+  }
+
   return (
     <div className="app">
-      {showTorScreen && (
-        <>
-          <header className="app-header">
-            <h1>Anon-Chat</h1>
-            <p className="subtitle">Private. Anonymous. Encrypted.</p>
-          </header>
-          <main className="app-main">
-            <TorStatus />
-          </main>
-          <footer className="app-footer">
-            <p>Connecting to the Tor network...</p>
-          </footer>
-        </>
-      )}
-
       {status.status === "error" && (
         <>
           <header className="app-header">
             <h1>Anon-Chat</h1>
           </header>
           <main className="app-main">
-            <TorStatus />
+            <p className="error-text">
+              Tor connection failed: {status.message}
+            </p>
           </main>
         </>
       )}
-
-      {status.status === "ready" && appState === "uninitialized" && (
-        <IdentitySetup />
-      )}
-      {status.status === "ready" && appState === "locked" && <UnlockScreen />}
+      {page === "setup" && <IdentitySetup />}
+      {page === "unlock" && <UnlockScreen />}
     </div>
   );
 }

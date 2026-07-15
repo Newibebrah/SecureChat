@@ -39,6 +39,142 @@ body {
   line-height: 1.5;
 }
 
+/* ===== LANDING PAGE ===== */
+.landing {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.landing-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 48px 36px 32px;
+  max-width: 440px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.landing-header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.landing-logo {
+  margin-bottom: 4px;
+}
+
+.landing-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.landing-subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.landing-prompt {
+  text-align: center;
+}
+
+.landing-question {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.landing-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.landing-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.landing-btn:hover {
+  border-color: var(--accent);
+  background: rgba(108, 92, 231, 0.06);
+}
+
+.landing-btn-primary {
+  border-color: var(--accent);
+  background: rgba(108, 92, 231, 0.08);
+}
+
+.landing-btn-primary:hover {
+  background: rgba(108, 92, 231, 0.15);
+}
+
+.landing-btn-icon {
+  font-size: 24px;
+  margin-bottom: 2px;
+}
+
+.landing-btn-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.landing-btn-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.landing-footer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.landing-tor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.landing-tor-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.landing-tor-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* ===== INITIAL BOOTSTRAP SCREEN ===== */
 .app {
   display: flex;
