@@ -4,6 +4,7 @@ import { useIdentityStore } from "../stores/identityStore";
 import { useTorStore } from "../stores/torStore";
 import { useContactStore, View } from "../stores/contactStore";
 import { useMessageStore } from "../stores/messageStore";
+import { hexToBase64 } from "../lib/tauri-core";
 import { ContactList } from "./ContactList";
 import { AddContact } from "./AddContact";
 import { SafetyVerification } from "./SafetyVerification";
@@ -65,7 +66,10 @@ function Sidebar() {
         <div className="sidebar-identity">
           <div className="sidebar-qr">
             <QRCodeSVG
-              value={identity.onion_address}
+              value={JSON.stringify({
+                onion: identity.onion_address,
+                pubkey: hexToBase64(identity.public_key),
+              })}
               size={120}
               bgColor="#ffffff"
               fgColor="#1a1a24"

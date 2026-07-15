@@ -43,7 +43,7 @@ async function computeFingerprint(pubkeyHex: string): Promise<string> {
   return hex.replace(/(.{4})/g, "$1 ").trim().toUpperCase();
 }
 
-function hexToBase64(hex: string): string {
+export function hexToBase64(hex: string): string {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2)
     bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
@@ -271,10 +271,12 @@ export async function invoke<T>(
           created_at: new Date().toISOString(),
           safety_number: safetyNumber,
         } as T;
-      } catch (err) {
+      } catch {
+        const hasOnion = qrData.includes(".onion");
         throw new Error(
-          "Invalid QR data: " +
-            (err instanceof Error ? err.message : String(err)),
+          hasOnion
+            ? "This QR only contains an Onion address. Please share your Profile QR code instead (contains public key for secure addition)."
+            : "Invalid QR data. Expected JSON with 'onion' and 'pubkey' fields.",
         );
       }
     }

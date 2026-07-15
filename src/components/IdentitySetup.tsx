@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useIdentityStore } from "../stores/identityStore";
+import { hexToBase64 } from "../lib/tauri-core";
 
 type Step = "password" | "generating" | "complete";
 
@@ -55,7 +56,10 @@ export function IdentitySetup() {
 
           <div className="identity-qr">
             <QRCodeSVG
-              value={identity.onion_address}
+              value={JSON.stringify({
+                onion: identity.onion_address,
+                pubkey: hexToBase64(identity.public_key),
+              })}
               size={200}
               bgColor="#ffffff"
               fgColor="#1a1a24"
