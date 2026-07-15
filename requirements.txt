@@ -1,0 +1,75 @@
+# Anon-Chat — System Dependencies
+# ==============================================================================
+# This file lists all external dependencies needed to build and run Anon-Chat.
+# Install them before running `npm run tauri dev`.
+#
+# ========================
+# 1. SYSTEM DEPENDENCIES (Linux — Debian/Ubuntu)
+# ========================
+# These are required by Tauri v2 on Linux:
+#   sudo apt install -y \
+#     libgtk-3-dev \
+#     libwebkit2gtk-4.1-dev \
+#     libayatana-appindicator3-dev \
+#     librsvg2-dev \
+#     patchelf
+#
+# On Arch Linux:
+#   sudo pacman -S --needed \
+#     gtk3 webkit2gtk-4.1 libappindicator-gtk3 librsvg patchelf
+#
+# On Fedora:
+#   sudo dnf install -y \
+#     gtk3-devel webkit2gtk4.1-devel libappindicator-gtk3-devel \
+#     librsvg2-devel patchelf
+#
+# ========================
+# 2. RUNTIME REQUIREMENTS
+# ========================
+# Node.js >= 18
+# npm >= 9
+# Rust stable toolchain (install via https://rustup.rs):
+#   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+#
+# ========================
+# 3. JAVASCRIPT DEPENDENCIES (npm)
+# ========================
+# Install with: npm install
+# Listed in package.json:
+#   - @tauri-apps/api ^2.0.0      — Tauri frontend API
+#   - @tauri-apps/plugin-shell ^2.0.0
+#   - react ^18.2.0               — UI framework
+#   - react-dom ^18.2.0
+#   - zustand ^4.5.0              — State management
+#   - qrcode.react ^4.2.0         — QR code rendering
+#   - html5-qrcode ^2.3.8         — QR scanner
+# Dev deps:
+#   - @tauri-apps/cli ^2.0.0
+#   - typescript ^5.3.0
+#   - vite ^5.0.0
+#   - @vitejs/plugin-react ^4.2.0
+#   - @types/react ^18.2.0
+#   - @types/react-dom ^18.2.0
+#
+# ========================
+# 4. RUST DEPENDENCIES (Cargo)
+# ========================
+# Built automatically with: cargo build
+# Listed in src-tauri/Cargo.toml:
+#   - tauri 2                       — Desktop app framework
+#   - tauri-plugin-shell 2
+#   - arti-client 0.13              — Tor client (Arti)
+#   - tokio 1                       — Async runtime
+#   - serde / serde_json 1          — Serialization
+#   - ed25519-dalek 2               — Ed25519 keypairs
+#   - chacha20poly1305 0.10         — Encryption
+#   - argon2 0.5                    — Key derivation
+#   - sha2 / sha3 0.10              — Hashing
+#   - rusqlite 0.30                 — SQLite (bundled)
+#   - base32 0.5 / base64 0.22      — Encoding
+#   - hex 0.4                       — Hex encoding
+#   - rand 0.8                      — Random number generation
+#   - zeroize 1                     — Secure memory clearing
+#   - secrecy 0.8                   — Secret management
+#   - hkdf 0.12                     — Key derivation
+#   - dirs 5                        — Platform data directories
