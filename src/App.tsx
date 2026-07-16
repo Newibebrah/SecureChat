@@ -1,6 +1,6 @@
-import { lazy, Suspense, useState, useCallback } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect } from "react";
 import { useIdentityStore } from "./stores/identityStore";
-import { useTorStore } from "./stores/torStore";
+import { usePatternStore } from "./stores/patternStore";
 import "./App.css";
 
 const Layout = lazy(() =>
@@ -15,6 +15,9 @@ const IdentitySetup = lazy(() =>
 const UnlockScreen = lazy(() =>
   import("./components/UnlockScreen").then((m) => ({ default: m.UnlockScreen })),
 );
+const PatternLock = lazy(() =>
+  import("./components/PatternLock").then((m) => ({ default: m.PatternLock })),
+);
 
 function LoadingFallback() {
   return (
@@ -26,16 +29,60 @@ function LoadingFallback() {
 }
 
 function App() {
-  const [page, setPage] = useState<"landing" | "setup" | "unlock" | null>("landing");
+  const [page, setPage] = useState<"landing" | "setup" | null>("landing");
   const appState = useIdentityStore((s) => s.appState);
-  const status = useTorStore((s) => s.status);
+  const pattern = usePatternStore((s) => s.pattern);
+
+  const [patternVerified, setPatternVerified] = useState(false);
+  const [showReview, setShowReview] = useState(false);
+  const [showPatternSetup, setShowPatternSetup] = useState(false);
 
   const isAppReady = appState === "ready";
 
-  const handleNew = useCallback(() => setPage("setup"), []);
-  const handleExisting = useCallback(() => setPage("unlock"), []);
+  useEffect(() => {
+    if (isAppReady && page === "setup" && !showReview) {
+      setShowReview(true);
+    }
+  }, [isAppReady, page, showReview]);
 
-  if (isAppReady) {
+  const handleNew = useCallback(() => {
+    setPage("setup");
+    setShowReview(false);
+    setShowPatternSetup(false);
+  }, []);
+
+  const handleExisting = useCallback(() => setPage(null), []);
+
+  const handleSetupDone = useCallback(() => {
+    setShowReview(false);
+    setPatternVerified(true);
+    setPage("landing");
+  }, []);
+
+  const handlePatternVerified = useCallback(() => {
+    setPatternVerified(true);
+  }, []);
+
+  const handleBackToLocked = useCallback(() => {
+    useIdentityStore.getState().setAppState("locked");
+    setPage("landing");
+  }, []);
+
+  const needsPattern = isAppReady && !patternVerified && !!pattern && !showReview;
+
+  if (needsPattern) {
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <PatternLock
+          mode="verify"
+          onSuccess={handlePatternVerified}
+          onBack={handleBackToLocked}
+        />
+      </Suspense>
+    );
+  }
+
+  if (isAppReady && !showReview && !showPatternSetup) {
     return (
       <Suspense fallback={<LoadingFallback />}>
         <Layout />
@@ -43,8 +90,7 @@ function App() {
     );
   }
 
-  // Session locked → show unlock screen directly
-  if (appState === "locked" || page === "unlock") {
+  if (appState === "locked" || page === null) {
     return (
       <Suspense fallback={<LoadingFallback />}>
         <UnlockScreen />
@@ -60,22 +106,27 @@ function App() {
     );
   }
 
+  // Setup flow: show identity review & optional pattern setup
   return (
     <div className="app">
-      {status.status === "error" && (
-        <>
-          <header className="app-header">
-            <h1>Anon-Chat</h1>
-          </header>
-          <main className="app-main">
-            <p className="error-text">
-              Tor connection failed: {status.message}
-            </p>
-          </main>
-        </>
-      )}
       <Suspense fallback={<LoadingFallback />}>
-        {page === "setup" && <IdentitySetup />}
+        {showReview && !showPatternSetup && (
+          <IdentitySetup
+            onDone={handleSetupDone}
+            onSetPattern={() => setShowPatternSetup(true)}
+          />
+        )}
+        {showReview && showPatternSetup && (
+          <PatternLock
+            mode="set"
+            onSuccess={handleSetupDone}
+            onSetComplete={(p) => usePatternStore.getState().setPattern(p)}
+            onBack={() => setShowPatternSetup(false)}
+          />
+        )}
+        {!showReview && page === "setup" && (
+          <IdentitySetup onDone={handleSetupDone} />
+        )}
       </Suspense>
     </div>
   );

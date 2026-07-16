@@ -1,12 +1,18 @@
 import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useIdentityStore } from "../stores/identityStore";
+import { usePatternStore } from "../stores/patternStore";
 import { hexToBase64 } from "../lib/tauri-core";
 import { PasswordStrengthIndicator } from "./PasswordStrengthIndicator";
 
 type Step = "password" | "generating" | "complete";
 
-export function IdentitySetup() {
+interface IdentitySetupProps {
+  onDone?: () => void;
+  onSetPattern?: () => void;
+}
+
+export function IdentitySetup({ onDone, onSetPattern }: IdentitySetupProps) {
   const [step, setStep] = useState<Step>("password");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -91,6 +97,23 @@ export function IdentitySetup() {
               Verify the Safety Number out-of-band for secure communication.
             </p>
           </div>
+
+          <div className="setup-pattern-section">
+            {usePatternStore.getState().pattern ? (
+              <p className="hint">Pattern lock is set</p>
+            ) : (
+              <button
+                className="btn btn-outline"
+                onClick={onSetPattern}
+              >
+                Set Pattern Lock
+              </button>
+            )}
+          </div>
+
+          <button className="btn-primary setup-continue" onClick={onDone}>
+            Continue to Chat
+          </button>
         </div>
       </div>
     );
