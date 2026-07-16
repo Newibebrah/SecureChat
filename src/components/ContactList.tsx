@@ -12,14 +12,14 @@ const ContactItem = memo(function ContactItem({
   onVerify: (onion: string) => void;
   onChat: (contact: ContactPayload) => void;
 }) {
+  const addr = contact.onionAddress || "";
   const displayName =
-    contact.localNickname || contact.onionAddress.slice(0, 16) + "...";
+    contact.localNickname || addr.slice(0, 16) || "???";
 
   const truncatedOnion =
-    contact.onionAddress.length > 25
-      ? contact.onionAddress.slice(0, 10) + "..." +
-        contact.onionAddress.slice(-8)
-      : contact.onionAddress;
+    addr.length > 25
+      ? addr.slice(0, 10) + "..." + addr.slice(-8)
+      : addr || "?";
 
   return (
     <div className="contact-item">
@@ -61,7 +61,7 @@ const ContactItem = memo(function ContactItem({
 });
 
 export const ContactList = memo(function ContactList() {
-  const contacts = useContactStore((s) => s.contacts);
+  const contacts = useContactStore((s) => s.contacts) || [];
   const fetchContacts = useContactStore((s) => s.fetchContacts);
   const deleteContact = useContactStore((s) => s.deleteContact);
   const verifyContact = useContactStore((s) => s.verifyContact);
