@@ -43,8 +43,8 @@ const Sidebar = memo(function Sidebar({
   const currentView = useContactStore((s) => s.currentView);
   const setView = useContactStore((s) => s.setView);
   const setAppState = useIdentityStore((s) => s.setAppState);
-  const contacts = useContactStore((s) => s.contacts);
-  const conversations = useMessageStore((s) => s.conversations);
+  const contacts = useContactStore((s) => s.contacts) || [];
+  const conversations = useMessageStore((s) => s.conversations) || [];
 
   const totalUnread = conversations.reduce((sum, c) => sum + c.unread, 0);
 
@@ -136,11 +136,11 @@ const Sidebar = memo(function Sidebar({
 
 const ConversationsList = memo(function ConversationsList() {
   const identity = useIdentityStore((s) => s.identity);
-  const contacts = useContactStore((s) => s.contacts);
+  const contacts = useContactStore((s) => s.contacts) || [];
   const openChat = useContactStore((s) => s.openChat);
   const markConversationRead = useMessageStore((s) => s.markConversationRead);
   const loadMessages = useMessageStore((s) => s.loadMessages);
-  const conversations = useMessageStore((s) => s.conversations);
+  const conversations = useMessageStore((s) => s.conversations) || [];
 
   useEffect(() => {
     loadMessages();
@@ -216,9 +216,9 @@ const ConversationsList = memo(function ConversationsList() {
               </div>
               <div className="conversation-bottom">
                 <span className="conversation-preview">
-                  {conv.lastMessage.length > 80
-                    ? conv.lastMessage.slice(0, 80) + "..."
-                    : conv.lastMessage}
+                  {(conv.lastMessage || "").length > 80
+                    ? (conv.lastMessage || "").slice(0, 80) + "..."
+                    : conv.lastMessage || ""}
                 </span>
                 {conv.unread > 0 && (
                   <span className="unread-dot">{conv.unread}</span>
