@@ -53,13 +53,17 @@ export const ChatView = memo(function ChatView({
   const markConversationRead = useMessageStore((s) => s.markConversationRead);
   const identity = useIdentityStore((s) => s.identity);
 
-  useEffect(() => {
-    markConversationRead(contact.onionAddress);
-  }, [contact.onionAddress, markConversationRead]);
+  const contactOnion = contact.onionAddress || "";
 
-  const conversation = messages
-    .filter((m) => m.contactOnion === contact.onionAddress)
-    .sort((a, b) => a.timestamp - b.timestamp);
+  useEffect(() => {
+    if (contactOnion) markConversationRead(contactOnion);
+  }, [contactOnion, markConversationRead]);
+
+  const conversation = contactOnion
+    ? messages
+        .filter((m) => m.contactOnion === contactOnion)
+        .sort((a, b) => a.timestamp - b.timestamp)
+    : [];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -67,10 +71,10 @@ export const ChatView = memo(function ChatView({
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || !identity) return;
+    if (!trimmed || !identity || !contactOnion) return;
     setInput("");
-    await sendMessage(contact.onionAddress, trimmed, identity.onionAddress);
-  }, [input, identity, contact.onionAddress, sendMessage]);
+    await sendMessage(contactOnion, trimmed, identity.onionAddress);
+  }, [input, identity, contactOnion, sendMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -91,10 +95,10 @@ export const ChatView = memo(function ChatView({
         <div className="chat-header-info">
           <span className="chat-header-name">
             {contact.localNickname ||
-              contact.onionAddress.slice(0, 16) + "..."}
+              (contactOnion || "").slice(0, 16) + "..."}
           </span>
           <span className="chat-header-onion">
-            {contact.onionAddress}
+            {contactOnion}
           </span>
         </div>
       </div>
