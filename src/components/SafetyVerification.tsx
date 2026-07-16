@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useContactStore } from "../stores/contactStore";
+import { hexToBase64 } from "../lib/tauri-core";
 
 export function SafetyVerification() {
   const [verified, setVerified] = useState(false);
@@ -26,9 +27,10 @@ export function SafetyVerification() {
     setSaveError(null);
     try {
       await addContact(
-        pendingContact.onion_address,
-        pendingContact.public_key_hex,
+        pendingContact.onionAddress,
+        hexToBase64(pendingContact.publicKeyHex),
         nickname,
+        pendingContact.x25519PublicHex,
       );
       setPendingContact(null);
       setView("contacts");
@@ -40,10 +42,10 @@ export function SafetyVerification() {
   };
 
   const truncatedOnion =
-    pendingContact.onion_address.length > 20
-      ? pendingContact.onion_address.slice(0, 16) + "..." +
-        pendingContact.onion_address.slice(-6)
-      : pendingContact.onion_address;
+    pendingContact.onionAddress.length > 20
+      ? pendingContact.onionAddress.slice(0, 16) + "..." +
+        pendingContact.onionAddress.slice(-6)
+      : pendingContact.onionAddress;
 
   return (
     <div className="contact-screen">
@@ -69,7 +71,7 @@ export function SafetyVerification() {
         <div className="safety-number-section">
           <span className="verify-label">Safety Number</span>
           <div className="safety-number-display">
-            {pendingContact.safety_number
+            {pendingContact.safetyNumber
               .split(" ")
               .map((group, i) => (
                 <span key={i} className="safety-group">

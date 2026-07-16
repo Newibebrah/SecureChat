@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useIdentityStore } from "../stores/identityStore";
+import { PasswordStrengthIndicator } from "./PasswordStrengthIndicator";
 
 export function UnlockScreen() {
   const [password, setPassword] = useState("");
@@ -34,6 +35,10 @@ export function UnlockScreen() {
               autoFocus
             />
           </div>
+
+          {password.length > 0 && (
+            <PasswordStrengthIndicator password={password} />
+          )}
 
           {error && <p className="error-text">{error}</p>}
 

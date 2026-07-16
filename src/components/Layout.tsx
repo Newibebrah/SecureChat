@@ -1,15 +1,29 @@
-import { useEffect } from "react";
+import { useEffect, useState, lazy, Suspense, memo, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useIdentityStore } from "../stores/identityStore";
 import { useTorStore } from "../stores/torStore";
-import { useContactStore, View } from "../stores/contactStore";
+import { useContactStore, View, ContactPayload } from "../stores/contactStore";
 import { useMessageStore } from "../stores/messageStore";
 import { hexToBase64 } from "../lib/tauri-core";
-import { ContactList } from "./ContactList";
-import { AddContact } from "./AddContact";
-import { SafetyVerification } from "./SafetyVerification";
-import { ProfileScreen } from "./ProfileScreen";
-import { ChatView } from "./ChatView";
+import { initTorEventListener } from "../stores/torStore";
+
+const ContactList = lazy(() =>
+  import("./ContactList").then((m) => ({ default: m.ContactList })),
+);
+const AddContact = lazy(() =>
+  import("./AddContact").then((m) => ({ default: m.AddContact })),
+);
+const SafetyVerification = lazy(() =>
+  import("./SafetyVerification").then((m) => ({ default: m.SafetyVerification })),
+);
+const ProfileScreen = lazy(() =>
+  import("./ProfileScreen").then((m) => ({ default: m.ProfileScreen })),
+);
+const ChatView = lazy(() =>
+  import("./ChatView").then((m) => ({ default: m.ChatView })),
+);
 
 const navItems: { id: View; label: string }[] = [
   { id: "chats", label: "Chats" },
@@ -17,17 +31,22 @@ const navItems: { id: View; label: string }[] = [
   { id: "profile", label: "Profile" },
 ];
 
-function Sidebar() {
-  const { identity } = useIdentityStore();
-  const { status } = useTorStore();
-  const { currentView, setView, contacts } = useContactStore();
-  const { getConversations } = useMessageStore();
-  const totalUnread = identity
-    ? getConversations(identity.onion_address).reduce(
-        (sum, c) => sum + c.unread,
-        0,
-      )
-    : 0;
+const Sidebar = memo(function Sidebar({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const identity = useIdentityStore((s) => s.identity);
+  const status = useTorStore((s) => s.status);
+  const currentView = useContactStore((s) => s.currentView);
+  const setView = useContactStore((s) => s.setView);
+  const setAppState = useIdentityStore((s) => s.setAppState);
+  const contacts = useContactStore((s) => s.contacts);
+  const conversations = useMessageStore((s) => s.conversations);
+
+  const totalUnread = conversations.reduce((sum, c) => sum + c.unread, 0);
 
   const statusColor =
     status.status === "ready"
@@ -37,18 +56,17 @@ function Sidebar() {
         : "#f59e0b";
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? "open" : ""}`}>
       <div className="sidebar-header">
         <h1 className="sidebar-title">Anon-Chat</h1>
       </div>
 
-      {/* Navigation */}
       <nav className="sidebar-nav">
         {navItems.map((item) => (
           <button
             key={item.id}
             className={`sidebar-nav-item ${currentView === item.id ? "active" : ""}`}
-            onClick={() => setView(item.id)}
+            onClick={() => { setView(item.id); onClose(); }}
           >
             {item.label}
             {item.id === "contacts" && contacts.length > 0 && (
@@ -61,14 +79,13 @@ function Sidebar() {
         ))}
       </nav>
 
-      {/* Identity card */}
       {identity && (
         <div className="sidebar-identity">
           <div className="sidebar-qr">
             <QRCodeSVG
               value={JSON.stringify({
-                onion: identity.onion_address,
-                pubkey: hexToBase64(identity.public_key),
+                onion: identity.onionAddress,
+                pubkey: hexToBase64(identity.publicKey),
               })}
               size={120}
               bgColor="#ffffff"
@@ -78,7 +95,7 @@ function Sidebar() {
           </div>
           <div className="sidebar-onion">
             <label>Your Onion</label>
-            <code className="onion-small">{identity.onion_address}</code>
+            <code className="onion-small">{identity.onionAddress}</code>
           </div>
           <div className="sidebar-fingerprint">
             <label>Safety Number</label>
@@ -87,7 +104,6 @@ function Sidebar() {
         </div>
       )}
 
-      {/* Tor status */}
       <div className="sidebar-tor">
         <div className="tor-indicator-small">
           <span
@@ -97,31 +113,48 @@ function Sidebar() {
           <span className="tor-label-small">{status.message}</span>
         </div>
       </div>
+
+      <div className="sidebar-lock">
+        <button
+          className="sidebar-nav-item lock-button"
+          onClick={async () => {
+            try {
+              await invoke("lock_identity");
+              setAppState("locked");
+            } catch {
+              //
+            }
+            onClose();
+          }}
+        >
+          Lock Session
+        </button>
+      </div>
     </aside>
   );
-}
+});
 
-function ConversationsList() {
-  const { identity } = useIdentityStore();
-  const { contacts, openChat } = useContactStore();
-  const { getConversations, markConversationRead, loadMessages } =
-    useMessageStore();
+const ConversationsList = memo(function ConversationsList() {
+  const identity = useIdentityStore((s) => s.identity);
+  const contacts = useContactStore((s) => s.contacts);
+  const openChat = useContactStore((s) => s.openChat);
+  const markConversationRead = useMessageStore((s) => s.markConversationRead);
+  const loadMessages = useMessageStore((s) => s.loadMessages);
+  const conversations = useMessageStore((s) => s.conversations);
 
   useEffect(() => {
     loadMessages();
-  }, []);
+  }, [loadMessages]);
 
   if (!identity) return null;
 
-  const conversations = getConversations(identity.onion_address);
-
   const getContactName = (onion: string) => {
-    const c = contacts.find((c) => c.onion_address === onion);
-    return c?.local_nickname || onion.slice(0, 16) + "...";
+    const c = contacts.find((ct) => ct.onionAddress === onion);
+    return c?.localNickname || onion.slice(0, 16) + "...";
   };
 
   const getContact = (onion: string) => {
-    return contacts.find((c) => c.onion_address === onion) || null;
+    return contacts.find((ct) => ct.onionAddress === onion) || null;
   };
 
   if (conversations.length === 0) {
@@ -148,7 +181,21 @@ function ConversationsList() {
             className="conversation-item"
             onClick={() => {
               markConversationRead(conv.contactOnion);
-              if (contact) openChat(contact);
+              if (contact) {
+                openChat(contact);
+              } else {
+                const tmp: ContactPayload = {
+                  id: 0,
+                  onionAddress: conv.contactOnion,
+                  publicKeyHex: "",
+                  x25519PublicHex: "",
+                  localNickname: conv.contactOnion.slice(0, 16) + "...",
+                  safetyVerified: false,
+                  createdAt: new Date().toISOString(),
+                  safetyNumber: "",
+                };
+                openChat(tmp);
+              }
             }}
           >
             <div className="conversation-avatar">
@@ -168,7 +215,11 @@ function ConversationsList() {
                 </span>
               </div>
               <div className="conversation-bottom">
-                <span className="conversation-preview">{conv.lastMessage}</span>
+                <span className="conversation-preview">
+                  {conv.lastMessage.length > 80
+                    ? conv.lastMessage.slice(0, 80) + "..."
+                    : conv.lastMessage}
+                </span>
                 {conv.unread > 0 && (
                   <span className="unread-dot">{conv.unread}</span>
                 )}
@@ -179,10 +230,12 @@ function ConversationsList() {
       })}
     </div>
   );
-}
+});
 
 function MainContent() {
-  const { currentView, chatContact, setView } = useContactStore();
+  const currentView = useContactStore((s) => s.currentView);
+  const chatContact = useContactStore((s) => s.chatContact);
+  const setView = useContactStore((s) => s.setView);
 
   switch (currentView) {
     case "add-contact":
@@ -205,28 +258,84 @@ function MainContent() {
   }
 }
 
-export function Layout() {
-  const { fetchContacts } = useContactStore();
-  const { identity } = useIdentityStore();
-  const { startPolling, stopPolling } = useMessageStore();
+export const Layout = memo(function Layout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const appState = useIdentityStore((s) => s.appState);
+  const setAppState = useIdentityStore((s) => s.setAppState);
+  const fetchContacts = useContactStore((s) => s.fetchContacts);
+  const identity = useIdentityStore((s) => s.identity);
+  const startPolling = useMessageStore((s) => s.startPolling);
+  const stopPolling = useMessageStore((s) => s.stopPolling);
 
-  useEffect(() => {
-    fetchContacts();
+  // Reset session inactivity timer on any user interaction
+  const resetSession = useCallback(() => {
+    invoke("stop_session_timer").catch(() => {});
   }, []);
 
   useEffect(() => {
+    initTorEventListener();
+    fetchContacts();
+    resetSession();
+
+    // Listen for auto-lock events from backend
+    const unlisten = listen<void>("session-locked", () => {
+      setAppState("locked");
+    });
+
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, [fetchContacts, resetSession, setAppState]);
+
+  useEffect(() => {
     if (identity) {
-      startPolling(identity.onion_address);
+      startPolling(identity.onionAddress);
       return () => stopPolling();
     }
-  }, [identity?.onion_address]);
+  }, [identity?.onionAddress, startPolling, stopPolling]);
+
+  // If session was locked, redirect to unlock
+  useEffect(() => {
+    if (appState === "locked") {
+      stopPolling();
+    }
+  }, [appState, stopPolling]);
+
+  const toggleSidebar = useCallback(() => {
+    resetSession();
+    setSidebarOpen((v) => !v);
+  }, [resetSession]);
+
+  const closeSidebar = useCallback(() => {
+    resetSession();
+    setSidebarOpen(false);
+  }, [resetSession]);
 
   return (
     <div className="app-layout">
-      <Sidebar />
+      <button
+        className="hamburger"
+        onClick={toggleSidebar}
+        aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+      >
+        {sidebarOpen ? "\u2715" : "\u2630"}
+      </button>
+      <div
+        className={`sidebar-overlay ${sidebarOpen ? "visible" : ""}`}
+        onClick={closeSidebar}
+      />
+      <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
       <main className="main-content">
-        <MainContent />
+        <Suspense
+          fallback={
+            <div className="loading-screen">
+              <div className="spinner" />
+            </div>
+          }
+        >
+          <MainContent />
+        </Suspense>
       </main>
     </div>
   );
-}
+});

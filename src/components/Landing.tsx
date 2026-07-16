@@ -46,28 +46,20 @@ export function Landing({
           <p className="landing-subtitle">Private. Anonymous. Encrypted.</p>
         </header>
 
-        <div className="landing-prompt">
-          <p className="landing-question">Do you already have a password?</p>
-        </div>
-
         <div className="landing-actions">
-          <button className="landing-btn landing-btn-primary" onClick={onExisting}>
-            <span className="landing-btn-icon">&#128273;</span>
-            <span className="landing-btn-label">Yes, I have a password</span>
-            <span className="landing-btn-desc">Unlock your existing identity</span>
+          <button className="landing-btn" onClick={onExisting}>
+            <span className="landing-btn-label">Unlock</span>
+            <span className="landing-btn-desc">I have a password</span>
           </button>
-          <button className="landing-btn landing-btn-secondary" onClick={onNew}>
-            <span className="landing-btn-icon">&#128100;</span>
-            <span className="landing-btn-label">No, I&rsquo;m new</span>
-            <span className="landing-btn-desc">Create a new identity</span>
+          <button className="landing-btn" onClick={onNew}>
+            <span className="landing-btn-label">Create</span>
+            <span className="landing-btn-desc">New identity</span>
           </button>
         </div>
 
-        <div className="landing-footer">
-          <div className="landing-tor">
-            <span className="landing-tor-dot" style={{ backgroundColor: statusColor }} />
-            <span className="landing-tor-text">{status.message}</span>
-          </div>
+        <div className="landing-tor">
+          <span className="landing-tor-dot" style={{ backgroundColor: statusColor }} />
+          <span className="landing-tor-text">{status.message}</span>
         </div>
       </div>
     </div>

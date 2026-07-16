@@ -1,17 +1,35 @@
 interface IdentityPayload {
-  onion_address: string;
-  public_key: string;
+  onionAddress: string;
+  publicKey: string;
   fingerprint: string;
 }
 
 interface StoredContact {
   id: number;
-  onion_address: string;
-  public_key_hex: string;
-  local_nickname: string;
-  safety_verified: boolean;
-  created_at: string;
-  safety_number: string;
+  onionAddress: string;
+  publicKeyHex: string;
+  x25519PublicHex: string;
+  localNickname: string;
+  safetyVerified: boolean;
+  createdAt: string;
+  safetyNumber: string;
+}
+
+interface MessagePayload {
+  id: number;
+  contactOnion: string;
+  content: string;
+  senderOnion: string;
+  timestamp: number;
+  isOutgoing: boolean;
+  status: string;
+}
+
+interface ConversationPayload {
+  contactOnion: string;
+  lastMessage: string;
+  lastTimestamp: number;
+  unread: number;
 }
 
 let activeIdentity: IdentityPayload | null = null;
@@ -63,14 +81,14 @@ function generateIdentity(): IdentityPayload {
   const pubkeyHex = randomHex(32);
   const onionAddr = randomBase32(56) + ".onion";
   return {
-    onion_address: onionAddr,
-    public_key: pubkeyHex,
+    onionAddress: onionAddr,
+    publicKey: pubkeyHex,
     fingerprint: "ABCD EFGH IJKL MNOP",
   };
 }
 
 async function finalizeIdentity(identity: IdentityPayload): Promise<IdentityPayload> {
-  identity.fingerprint = await computeFingerprint(identity.public_key);
+  identity.fingerprint = await computeFingerprint(identity.publicKey);
   return identity;
 }
 
@@ -97,10 +115,7 @@ function setStoredPasswordHash(hash: string) {
 
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest(
-    "SHA-256",
-    encoder.encode(password),
-  );
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(password));
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -121,15 +136,31 @@ function saveContacts(contacts: StoredContact[]) {
 
 async function computeSafetyNumber(pubkeyHex: string): Promise<string> {
   const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest(
-    "SHA-256",
-    encoder.encode(pubkeyHex),
-  );
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(pubkeyHex));
   const first8 = new Uint8Array(hashBuffer).slice(0, 8);
   const hex = Array.from(first8)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return hex.replace(/(.{4})/g, "$1 ").trim().toUpperCase();
+}
+
+const MESSAGE_STORAGE_KEY = "anon-chat-messages";
+
+function getMessages(): MessagePayload[] {
+  try {
+    const data = localStorage.getItem(MESSAGE_STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(msgs: MessagePayload[]) {
+  localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(msgs));
+}
+
+function generateId(): number {
+  return Date.now() + Math.floor(Math.random() * 10000);
 }
 
 export async function invoke<T>(
@@ -139,13 +170,11 @@ export async function invoke<T>(
   console.debug(`[Tauri Web] invoke("${cmd}")`, args);
 
   switch (cmd) {
-    case "database_exists": {
+    case "database_exists":
       return (getStoredIdentity() !== null) as T;
-    }
 
-    case "get_active_identity": {
+    case "get_active_identity":
       return activeIdentity as T;
-    }
 
     case "create_identity": {
       const password = args?.password as string;
@@ -170,48 +199,43 @@ export async function invoke<T>(
       return identity as T;
     }
 
-    case "get_tor_status": {
-      return {
-        status: "ready",
-        progress: 1.0,
-        message: "Connected (web demo)",
-      } as T;
-    }
+    case "get_tor_status":
+      return { status: "ready", progress: 1.0, message: "Connected (web demo)" } as T;
 
     case "generate_own_qr_code": {
       if (!activeIdentity) throw new Error("No identity loaded");
+      const pubkeyB64 = hexToBase64(activeIdentity.publicKey);
       return JSON.stringify({
-        onion: activeIdentity.onion_address,
-        pubkey: hexToBase64(activeIdentity.public_key),
+        onion: activeIdentity.onionAddress,
+        pubkey: pubkeyB64,
+        x25519: pubkeyB64,
       }) as T;
     }
 
-    case "list_contacts": {
+    case "list_contacts":
       return getContacts() as T;
-    }
 
     case "add_contact": {
       const onionAddress = args?.onionAddress as string;
       const publicKeyB64 = args?.publicKeyB64 as string;
+      const x25519Hex = (args?.x25519Hex as string) || "";
       const localNickname = args?.localNickname as string;
       if (!onionAddress || !publicKeyB64)
         throw new Error("onionAddress and publicKeyB64 are required");
-
       const publicKeyHex = base64ToHex(publicKeyB64);
       const safetyNumber = await computeSafetyNumber(publicKeyHex);
       const contacts = getContacts();
-
-      if (contacts.some((c) => c.onion_address === onionAddress))
+      if (contacts.some((c) => c.onionAddress === onionAddress))
         throw new Error("Contact already exists");
-
       const contact: StoredContact = {
         id: Date.now(),
-        onion_address: onionAddress,
-        public_key_hex: publicKeyHex,
-        local_nickname: localNickname || "",
-        safety_verified: false,
-        created_at: new Date().toISOString(),
-        safety_number: safetyNumber,
+        onionAddress: onionAddress,
+        publicKeyHex: publicKeyHex,
+        x25519PublicHex: x25519Hex,
+        localNickname: localNickname || "",
+        safetyVerified: false,
+        createdAt: new Date().toISOString(),
+        safetyNumber: safetyNumber,
       };
       contacts.push(contact);
       saveContacts(contacts);
@@ -220,9 +244,7 @@ export async function invoke<T>(
 
     case "delete_contact": {
       const onionAddress = args?.onionAddress as string;
-      const contacts = getContacts().filter(
-        (c) => c.onion_address !== onionAddress,
-      );
+      const contacts = getContacts().filter((c) => c.onionAddress !== onionAddress);
       saveContacts(contacts);
       return undefined as T;
     }
@@ -230,11 +252,9 @@ export async function invoke<T>(
     case "verify_contact": {
       const onionAddress = args?.onionAddress as string;
       const contacts = getContacts();
-      const idx = contacts.findIndex(
-        (c) => c.onion_address === onionAddress,
-      );
+      const idx = contacts.findIndex((c) => c.onionAddress === onionAddress);
       if (idx === -1) throw new Error("Contact not found");
-      contacts[idx] = { ...contacts[idx], safety_verified: true };
+      contacts[idx] = { ...contacts[idx], safetyVerified: true };
       saveContacts(contacts);
       return contacts[idx] as T;
     }
@@ -243,11 +263,9 @@ export async function invoke<T>(
       const onionAddress = args?.onionAddress as string;
       const localNickname = args?.localNickname as string;
       const contacts = getContacts();
-      const idx = contacts.findIndex(
-        (c) => c.onion_address === onionAddress,
-      );
+      const idx = contacts.findIndex((c) => c.onionAddress === onionAddress);
       if (idx === -1) throw new Error("Contact not found");
-      contacts[idx] = { ...contacts[idx], local_nickname: localNickname };
+      contacts[idx] = { ...contacts[idx], localNickname: localNickname };
       saveContacts(contacts);
       return contacts[idx] as T;
     }
@@ -258,18 +276,21 @@ export async function invoke<T>(
         const parsed = JSON.parse(qrData);
         const onionAddress = parsed.onion as string;
         const pubkeyB64 = parsed.pubkey as string;
+        const x25519B64 = parsed.x25519 as string;
         if (!onionAddress || !pubkeyB64)
           throw new Error("Missing 'onion' or 'pubkey' in QR data");
         const publicKeyHex = base64ToHex(pubkeyB64);
+        const x25519Hex = x25519B64 ? base64ToHex(x25519B64) : "";
         const safetyNumber = await computeSafetyNumber(publicKeyHex);
         return {
           id: Date.now(),
-          onion_address: onionAddress,
-          public_key_hex: publicKeyHex,
-          local_nickname: "",
-          safety_verified: false,
-          created_at: new Date().toISOString(),
-          safety_number: safetyNumber,
+          onionAddress: onionAddress,
+          publicKeyHex: publicKeyHex,
+          x25519PublicHex: x25519Hex,
+          localNickname: "",
+          safetyVerified: false,
+          createdAt: new Date().toISOString(),
+          safetyNumber: safetyNumber,
         } as T;
       } catch {
         const hasOnion = qrData.includes(".onion");
@@ -285,27 +306,105 @@ export async function invoke<T>(
       const contactOnion = args?.contactOnion as string;
       const content = args?.content as string;
       if (!activeIdentity) throw new Error("No identity loaded");
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: contactOnion,
-          from: activeIdentity.onion_address,
-          content,
-          timestamp: Date.now(),
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to send message");
+      const msg: MessagePayload = {
+        id: generateId(),
+        contactOnion: contactOnion,
+        content,
+        senderOnion: activeIdentity.onionAddress,
+        timestamp: Date.now(),
+        isOutgoing: true,
+        status: "sent",
+      };
+      const msgs = getMessages();
+      msgs.push(msg);
+      saveMessages(msgs);
+
+      try {
+        const res = await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: contactOnion,
+            from: activeIdentity.onionAddress,
+            content,
+            timestamp: msg.timestamp,
+          }),
+        });
+        if (res.ok) {
+          msg.status = "delivered";
+          const updated = getMessages().map((m) =>
+            m.id === msg.id ? { ...m, status: "delivered" } : m,
+          );
+          saveMessages(updated);
+        }
+      } catch {
+        msg.status = "failed";
+        const updated = getMessages().map((m) =>
+          m.id === msg.id ? { ...m, status: "failed" } : m,
+        );
+        saveMessages(updated);
       }
-      return undefined as T;
+      return msg as T;
     }
+
+    case "get_conversation": {
+      const contactOnion = args?.contactOnion as string;
+      const limit = (args?.limit as number) || 50;
+      const beforeId = args?.beforeId as number | undefined;
+      let msgs = getMessages().filter((m) => m.contactOnion === contactOnion);
+      if (beforeId) msgs = msgs.filter((m) => m.id < beforeId);
+      msgs.sort((a, b) => a.timestamp - b.timestamp);
+      return msgs.slice(-limit) as T;
+    }
+
+    case "get_recent_messages": {
+      const contactOnion = args?.contactOnion as string;
+      const afterTs = (args?.afterTimestamp as number) || 0;
+      const msgs = getMessages()
+        .filter((m) => m.contactOnion === contactOnion && m.timestamp > afterTs)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      return msgs as T;
+    }
+
+    case "get_conversations": {
+      const msgs = getMessages();
+      const grouped: Record<string, MessagePayload[]> = {};
+      for (const msg of msgs) {
+        if (!grouped[msg.contactOnion]) grouped[msg.contactOnion] = [];
+        grouped[msg.contactOnion].push(msg);
+      }
+      const convs: ConversationPayload[] = Object.entries(grouped).map(([onion, convMsgs]) => {
+        convMsgs.sort((a, b) => b.timestamp - a.timestamp);
+        return {
+          contactOnion: onion,
+          lastMessage: convMsgs[0].content,
+          lastTimestamp: convMsgs[0].timestamp,
+          unread: 0,
+        };
+      });
+      convs.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+      return convs as T;
+    }
+
+    case "mark_conversation_read":
+      return undefined as T;
+
+    case "decrypt_message_content": {
+      return args?.encryptedB64 as T;
+    }
+
+    case "import_encrypted_messages":
+      return 0 as T;
+
+    case "lock_identity":
+      activeIdentity = null;
+      return undefined as T;
+
+    case "stop_session_timer":
+      return undefined as T;
 
     default:
       console.warn(`[Tauri Web] Unhandled invoke: "${cmd}"`);
-      throw new Error(
-        `Tauri backend not available in web mode. Command: ${cmd}`,
-      );
+      throw new Error(`Tauri backend not available in web mode. Command: ${cmd}`);
   }
 }

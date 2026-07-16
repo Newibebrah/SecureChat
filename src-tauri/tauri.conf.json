@@ -18,11 +18,13 @@
         "resizable": true,
         "fullscreen": false,
         "minWidth": 720,
-        "minHeight": 480
+        "minHeight": 480,
+        "center": true,
+        "decorations": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:1420 http://localhost:3001; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self'"
     }
   },
   "bundle": {

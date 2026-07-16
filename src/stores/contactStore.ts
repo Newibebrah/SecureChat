@@ -3,12 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface ContactPayload {
   id: number;
-  onion_address: string;
-  public_key_hex: string;
-  local_nickname: string;
-  safety_verified: boolean;
-  created_at: string;
-  safety_number: string;
+  onionAddress: string;
+  publicKeyHex: string;
+  x25519PublicHex: string;
+  localNickname: string;
+  safetyVerified: boolean;
+  createdAt: string;
+  safetyNumber: string;
 }
 
 export type View = "chats" | "contacts" | "add-contact" | "profile" | "verify-contact" | "chat";
@@ -16,14 +17,14 @@ export type View = "chats" | "contacts" | "add-contact" | "profile" | "verify-co
 interface ContactStore {
   contacts: ContactPayload[];
   currentView: View;
-  pendingContact: ContactPayload | null; // for verification flow
+  pendingContact: ContactPayload | null;
   chatContact: ContactPayload | null;
   loading: boolean;
   error: string | null;
 
   setView: (view: View) => void;
   fetchContacts: () => Promise<void>;
-  addContact: (onion: string, pubkeyB64: string, nickname: string) => Promise<ContactPayload>;
+  addContact: (onion: string, pubkeyB64: string, nickname: string, x25519Hex?: string) => Promise<ContactPayload>;
   deleteContact: (onion: string) => Promise<void>;
   verifyContact: (onion: string) => Promise<void>;
   updateNickname: (onion: string, nickname: string) => Promise<void>;
@@ -53,20 +54,22 @@ export const useContactStore = create<ContactStore>((set, get) => ({
     }
   },
 
-  addContact: async (onion, pubkeyB64, nickname) => {
+  addContact: async (onion, pubkeyB64, nickname, x25519Hex?: string) => {
     const contact = await invoke<ContactPayload>("add_contact", {
       onionAddress: onion,
       publicKeyB64: pubkeyB64,
+      x25519Hex: x25519Hex || "",
       localNickname: nickname,
     });
-    // Refresh list
-    get().fetchContacts();
+    await get().fetchContacts();
     return contact;
   },
 
   deleteContact: async (onion) => {
     await invoke("delete_contact", { onionAddress: onion });
-    get().fetchContacts();
+    set((s) => ({
+      contacts: s.contacts.filter((c) => c.onionAddress !== onion),
+    }));
   },
 
   verifyContact: async (onion) => {
@@ -75,7 +78,7 @@ export const useContactStore = create<ContactStore>((set, get) => ({
     });
     set((state) => ({
       contacts: state.contacts.map((c) =>
-        c.onion_address === onion ? updated : c,
+        c.onionAddress === onion ? updated : c,
       ),
     }));
   },
@@ -87,16 +90,13 @@ export const useContactStore = create<ContactStore>((set, get) => ({
     });
     set((state) => ({
       contacts: state.contacts.map((c) =>
-        c.onion_address === onion ? updated : c,
+        c.onionAddress === onion ? updated : c,
       ),
     }));
   },
 
   resolveQr: async (qrData) => {
-    const contact = await invoke<ContactPayload>("resolve_contact_qr", {
-      qrData,
-    });
-    return contact;
+    return await invoke<ContactPayload>("resolve_contact_qr", { qrData });
   },
 
   setPendingContact: (c) => set({ pendingContact: c }),

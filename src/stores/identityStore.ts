@@ -2,8 +2,8 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface IdentityPayload {
-  onion_address: string;
-  public_key: string;
+  onionAddress: string;
+  publicKey: string;
   fingerprint: string;
 }
 
@@ -20,6 +20,7 @@ interface IdentityStore {
   unlockIdentity: (password: string) => Promise<void>;
   loadActiveIdentity: () => Promise<void>;
   clearError: () => void;
+  setAppState: (state: AppState) => void;
 }
 
 export const useIdentityStore = create<IdentityStore>((set) => ({
@@ -95,4 +96,5 @@ export const useIdentityStore = create<IdentityStore>((set) => ({
   },
 
   clearError: () => set({ error: null }),
+  setAppState: (state) => set({ appState: state }),
 }));

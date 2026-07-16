@@ -24,6 +24,22 @@ export default defineConfig(async () => ({
         },
       }
     : undefined,
+  build: {
+    target: "es2021",
+    minify: "esbuild",
+    cssMinify: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          qr: ["qrcode.react", "html5-qrcode"],
+          state: ["zustand"],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 300,
+    sourcemap: false,
+  },
   server: {
     port: 1420,
     strictPort: true,

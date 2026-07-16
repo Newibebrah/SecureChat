@@ -1,6 +1,3 @@
-// Allow dead code in early phases — functions will be used in Phases 2+.
-#![allow(dead_code)]
-
 mod commands;
 mod core;
 mod storage;
@@ -14,7 +11,7 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 use commands::TorStatusPayload;
-use core::identity::Identity;
+use core::identity;
 use tor_manager::{ArtiClientManager, NetworkGuard, TorStatus};
 
 /// Tauri-managed state for Tor status updates.
@@ -24,8 +21,11 @@ pub(crate) struct TorStatusState {
 
 /// Tauri-managed state for the active (unlocked) identity.
 pub(crate) struct ActiveIdentity {
-    pub identity: Mutex<Option<Identity>>,
+    pub identity: Mutex<Option<identity::Identity>>,
 }
+
+/// Tauri-managed state for the NetworkGuard (Tor kill switch + client access).
+pub(crate) struct NetGuard(pub Arc<NetworkGuard>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,23 +40,20 @@ pub fn run() {
 
     let (status_tx, status_rx) = watch::channel(TorStatus::Offline);
     let network_guard = Arc::new(NetworkGuard::new());
-
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(TorStatusState { status_rx })
         .manage(ActiveIdentity {
             identity: Mutex::new(None),
         })
+        .manage(NetGuard(network_guard.clone()))
         .invoke_handler(tauri::generate_handler![
-            // Phase 0
             commands::get_tor_status,
-            // Phase 1
             commands::database_exists,
             commands::create_identity,
             commands::unlock_identity,
             commands::get_active_identity,
             commands::get_stored_onion_address,
-            // Phase 2
             commands::add_contact,
             commands::list_contacts,
             commands::update_nickname,
@@ -64,22 +61,34 @@ pub fn run() {
             commands::delete_contact,
             commands::resolve_contact_qr,
             commands::generate_own_qr_code,
+            commands::send_message,
+            commands::get_conversation,
+            commands::get_recent_messages,
+            commands::get_conversations,
+            commands::mark_conversation_read,
+            commands::decrypt_message_content,
+            commands::import_encrypted_messages,
+            commands::lock_identity,
+            commands::stop_session_timer,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
             let handle_clone = handle.clone();
             let guard = network_guard.clone();
+            // Create a separate identity watch for onion service (used when arti supports it)
+            let identity_watch: Arc<Mutex<Option<identity::Identity>>> = Arc::new(Mutex::new(None));
 
-            // Spawn the Tor bootstrap background task
+            // Spawn the Tor bootstrap + onion service background task
             std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+                let rt = tokio::runtime::Runtime::new()
+                    .expect("Failed to create Tokio runtime");
                 rt.block_on(async move {
                     info!("Starting Tor bootstrap in background task...");
 
                     match ArtiClientManager::bootstrap(status_tx.clone(), None).await {
                         Ok(client) => {
                             info!("Tor client ready, wiring into NetworkGuard");
-                            guard.set_client(client).await;
+                            guard.set_client(client.clone()).await;
 
                             let payload = TorStatusPayload {
                                 status: "ready".to_string(),
@@ -87,6 +96,24 @@ pub fn run() {
                                 message: "Tor connected".to_string(),
                             };
                             let _ = handle_clone.emit("tor-status", &payload);
+
+                            // Launch onion service to receive incoming messages
+                            info!("Launching onion service for inbound connections...");
+                            if let Err(e) = tor_manager::onion_service::launch_and_listen(
+                                &client,
+                                handle_clone.clone(),
+                                identity_watch.clone(),
+                            )
+                            .await
+                            {
+                                error!("Failed to launch onion service: {:#}", e);
+                                let payload = TorStatusPayload {
+                                    status: "error".to_string(),
+                                    progress: 0.0,
+                                    message: format!("Onion service failed: {}", e),
+                                };
+                                let _ = handle_clone.emit("tor-status", &payload);
+                            }
                         }
                         Err(e) => {
                             error!("Tor bootstrap failed: {:#}", e);

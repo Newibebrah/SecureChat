@@ -48,8 +48,8 @@ export const useTorStore = create<TorStore>((set) => ({
   },
 }));
 
-// Set up the Tauri event listener once
 let listenerInitialized = false;
+let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 export function initTorEventListener() {
   if (listenerInitialized) return;
@@ -60,4 +60,15 @@ export function initTorEventListener() {
   }).catch((err) => {
     console.error("Failed to listen for tor-status events:", err);
   });
+
+  const fetchStatus = useTorStore.getState().fetchStatus;
+  fetchStatus();
+  pollInterval = setInterval(fetchStatus, 5000);
+}
+
+export function stopTorPolling() {
+  if (pollInterval !== null) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
 }

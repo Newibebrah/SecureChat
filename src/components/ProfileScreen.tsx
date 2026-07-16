@@ -17,7 +17,7 @@ export function ProfileScreen() {
   const handleCopy = async () => {
     if (!identity) return;
     try {
-      await navigator.clipboard.writeText(identity.onion_address);
+      await navigator.clipboard.writeText(identity.onionAddress);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -59,7 +59,7 @@ export function ProfileScreen() {
 
         <div className="profile-detail">
           <span className="verify-label">Your Onion Address</span>
-          <code className="profile-onion">{identity.onion_address}</code>
+          <code className="profile-onion">{identity.onionAddress}</code>
           <button className="btn-secondary btn-small" onClick={handleCopy}>
             {copied ? "Copied!" : "Copy"}
           </button>
@@ -73,7 +73,7 @@ export function ProfileScreen() {
         <div className="profile-detail">
           <span className="verify-label">Public Key</span>
           <code className="profile-pk">
-            {identity.public_key.slice(0, 48)}...
+            {identity.publicKey.slice(0, 48)}...
           </code>
         </div>
 

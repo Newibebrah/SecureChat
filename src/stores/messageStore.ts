@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { useContactStore } from "./contactStore";
 
 export interface Message {
-  id: string;
+  id: number;
   contactOnion: string;
   content: string;
   senderOnion: string;
@@ -18,284 +20,206 @@ export interface Conversation {
   unread: number;
 }
 
-const STORAGE_KEY = "anon-chat-messages";
-const UNREAD_KEY = "anon-chat-unread";
-
-function loadFromStorage(): Message[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+interface IncomingPayload {
+  id: number;
+  contactOnion: string;
+  content: string;
+  senderOnion: string;
+  timestamp: number;
+  isOutgoing: boolean;
+  status: string;
 }
-
-function saveToStorage(messages: Message[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-}
-
-function loadUnread(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(UNREAD_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveUnread(unread: Record<string, number>) {
-  localStorage.setItem(UNREAD_KEY, JSON.stringify(unread));
-}
-
-function generateId(): string {
-  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 9);
-}
-
-const POLL_INTERVAL = 3000;
 
 interface MessageStore {
   messages: Message[];
-  unreadCounts: Record<string, number>;
-  selectedContact: string | null;
-  lastPollTimestamp: number;
+  conversations: Conversation[];
+  loading: boolean;
+  error: string | null;
 
-  loadMessages: () => void;
+  loadMessages: () => Promise<void>;
   sendMessage: (contactOnion: string, content: string, myOnion: string) => Promise<void>;
   getConversations: (myOnion: string) => Conversation[];
   getConversation: (contactOnion: string) => Message[];
-  markConversationRead: (contactOnion: string) => void;
-  setSelectedContact: (onion: string | null) => void;
-  addIncomingMessage: (msg: Message) => void;
+  markConversationRead: (contactOnion: string) => Promise<void>;
+  decryptContent: (contactOnion: string, encryptedContent: string) => Promise<string>;
   startPolling: (myOnion: string) => void;
   stopPolling: () => void;
 }
 
-let bc: BroadcastChannel | null = null;
-try {
-  bc = new BroadcastChannel("anon-chat-messages");
-} catch {
-  // BroadcastChannel not available
-}
-
+const POLL_INTERVAL = 3000;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let lastPollTimestamps: Record<string, number> = {};
+let decryptCache = new Map<string, string>();
+let eventListenerActive = false;
 
-async function pollMessages(myOnion: string, lastTs: number): Promise<void> {
-  try {
-    const url = `/api/messages?onion=${encodeURIComponent(myOnion)}&after=${lastTs}`;
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data.messages || data.messages.length === 0) return;
+export const useMessageStore = create<MessageStore>((set, get) => ({
+  messages: [],
+  conversations: [],
+  loading: false,
+  error: null,
 
-    const state = useMessageStore.getState();
-    const knownIds = new Set(state.messages.map((m) => m.id));
-    let newMessages: Message[] = [];
-    let maxTs = state.lastPollTimestamp;
-
-    for (const raw of data.messages) {
-      if (raw.timestamp > maxTs) maxTs = raw.timestamp;
-      const msgId = raw.id || `${raw.from}-${raw.timestamp}`;
-      if (knownIds.has(msgId)) continue;
-
-      const msg: Message = {
-        id: msgId,
-        contactOnion: raw.from,
-        content: raw.content,
-        senderOnion: raw.from,
-        timestamp: raw.timestamp,
-        isOutgoing: false,
-        status: "delivered",
-      };
-      newMessages.push(msg);
-    }
-
-    if (newMessages.length > 0) {
-      const all = [...state.messages, ...newMessages];
-      saveToStorage(all);
-      const unread = { ...state.unreadCounts };
-      for (const m of newMessages) {
-        unread[m.contactOnion] = (unread[m.contactOnion] || 0) + 1;
+  loadMessages: async () => {
+    set({ loading: true });
+    try {
+      const convs = await invoke<Conversation[]>("get_conversations");
+      const allMessages: Message[] = [];
+      for (const conv of convs) {
+        const msgs = await invoke<Message[]>("get_conversation", {
+          contactOnion: conv.contactOnion,
+          limit: 50,
+        });
+        allMessages.push(...msgs);
       }
-      saveUnread(unread);
-      useMessageStore.setState({
-        messages: all,
-        unreadCounts: unread,
-        lastPollTimestamp: maxTs,
-      });
-    } else {
-      useMessageStore.setState({ lastPollTimestamp: maxTs });
+      set({ messages: allMessages, conversations: convs, loading: false });
+    } catch (err) {
+      set({ error: String(err), loading: false });
     }
-  } catch {
-    // Poll failed silently
-  }
-}
+  },
 
-export const useMessageStore = create<MessageStore>((set, get) => {
-  if (bc) {
-    bc.onmessage = (event) => {
-      const data = event.data;
-      if (data.type === "message") {
-        const msg: Message = {
-          id: data.id,
-          contactOnion: data.contactOnion,
-          content: data.content,
-          senderOnion: data.senderOnion,
-          timestamp: data.timestamp,
-          isOutgoing: false,
-          status: "delivered",
-        };
-        const state = get();
-        const exists = state.messages.some((m) => m.id === msg.id);
-        if (!exists) {
-          const newMessages = [...state.messages, msg];
-          saveToStorage(newMessages);
-          const unread = { ...state.unreadCounts };
-          unread[msg.contactOnion] = (unread[msg.contactOnion] || 0) + 1;
-          saveUnread(unread);
-          set({ messages: newMessages, unreadCounts: unread });
-        }
-      }
-    };
-  }
-
-  window.addEventListener("storage", (event) => {
-    if (event.key === STORAGE_KEY && event.newValue) {
-      try {
-        const incoming = JSON.parse(event.newValue) as Message[];
-        const state = get();
-        if (incoming.length > state.messages.length) {
-          set({ messages: incoming });
-        }
-      } catch {
-        // ignore
-      }
-    }
-    if (event.key === UNREAD_KEY && event.newValue) {
-      try {
-        set({ unreadCounts: JSON.parse(event.newValue) });
-      } catch {
-        // ignore
-      }
-    }
-  });
-
-  return {
-    messages: loadFromStorage(),
-    unreadCounts: loadUnread(),
-    selectedContact: null,
-    lastPollTimestamp: Date.now(),
-
-    loadMessages: () => {
-      set({ messages: loadFromStorage(), unreadCounts: loadUnread() });
-    },
-
-    sendMessage: async (contactOnion, content, myOnion) => {
-      const msg: Message = {
-        id: generateId(),
+  sendMessage: async (contactOnion, content, myOnion) => {
+    try {
+      await invoke<Message>("send_message", { contactOnion, content });
+      await get().loadMessages();
+    } catch (err) {
+      const mockId = Date.now();
+      const failedMsg: Message = {
+        id: mockId,
         contactOnion,
         content,
         senderOnion: myOnion,
         timestamp: Date.now(),
         isOutgoing: true,
-        status: "sent",
+        status: "failed",
       };
+      set((s) => ({ messages: [...s.messages, failedMsg] }));
+      set({ error: String(err) });
+    }
+  },
 
-      const state = get();
-      const newMessages = [...state.messages, msg];
-      saveToStorage(newMessages);
-      set({ messages: newMessages });
+  getConversations: (_myOnion) => {
+    return get().conversations;
+  },
 
-      try {
-        await invoke("send_message", {
-          contactOnion,
-          content,
-        });
-        const updated = get().messages.map((m) =>
-          m.id === msg.id ? { ...m, status: "delivered" as const } : m,
-        );
-        saveToStorage(updated);
-        set({ messages: updated });
-      } catch {
-        const failed = get().messages.map((m) =>
-          m.id === msg.id ? { ...m, status: "failed" as const } : m,
-        );
-        saveToStorage(failed);
-        set({ messages: failed });
+  getConversation: (contactOnion) => {
+    return get()
+      .messages.filter((m) => m.contactOnion === contactOnion)
+      .sort((a, b) => a.timestamp - b.timestamp);
+  },
+
+  markConversationRead: async (contactOnion) => {
+    try {
+      await invoke("mark_conversation_read", { contactOnion });
+    } catch {
+      // ignore
+    }
+  },
+
+  decryptContent: async (contactOnion, encryptedContent) => {
+    const cacheKey = `${contactOnion}:${encryptedContent.slice(0, 32)}`;
+    const cached = decryptCache.get(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const contact = useContactStore.getState().contacts.find(
+        (c) => c.onionAddress === contactOnion,
+      );
+      if (!contact) return encryptedContent;
+
+      const plaintext = await invoke<string>("decrypt_message_content", {
+        encryptedB64: encryptedContent,
+        senderOnion: contactOnion,
+      });
+      decryptCache.set(cacheKey, plaintext);
+      if (decryptCache.size > 500) {
+        const firstKey = decryptCache.keys().next().value;
+        if (firstKey) decryptCache.delete(firstKey);
       }
+      return plaintext;
+    } catch {
+      return encryptedContent;
+    }
+  },
 
-      if (bc) {
-        bc.postMessage({
-          type: "message",
+  startPolling: (_myOnion) => {
+    get().stopPolling();
+    get().loadMessages();
+
+    if (!eventListenerActive) {
+      eventListenerActive = true;
+      listen<IncomingPayload>("new-message", (event) => {
+        const msg = event.payload;
+        const state = get();
+        const existing = state.messages.find((m) => m.id === msg.id);
+        if (existing) return;
+
+        const newMsg: Message = {
           id: msg.id,
-          contactOnion,
-          content,
-          senderOnion: myOnion,
+          contactOnion: msg.contactOnion,
+          content: msg.content,
+          senderOnion: msg.senderOnion,
           timestamp: msg.timestamp,
+          isOutgoing: msg.isOutgoing,
+          status: msg.status as Message["status"],
+        };
+        set({
+          messages: [...state.messages, newMsg],
         });
+      }).catch((err) => {
+        console.error("Failed to listen for new-message events:", err);
+      });
+    }
+
+    pollTimer = setInterval(async () => {
+      try {
+        const convs = await invoke<Conversation[]>("get_conversations");
+        const state = get();
+        let hasNew = false;
+
+        for (const conv of convs) {
+          const lastTs = lastPollTimestamps[conv.contactOnion] || 0;
+          if (conv.lastTimestamp <= lastTs) continue;
+
+          const newMsgs = await invoke<Message[]>("get_recent_messages", {
+            contactOnion: conv.contactOnion,
+            afterTimestamp: lastTs,
+          });
+
+          if (newMsgs.length > 0) {
+            hasNew = true;
+            lastPollTimestamps[conv.contactOnion] = conv.lastTimestamp;
+            for (const msg of newMsgs) {
+              if (!msg.isOutgoing) {
+                try {
+                  const decoded = await invoke<string>("decrypt_message_content", {
+                    encryptedB64: msg.content,
+                    senderOnion: msg.contactOnion,
+                  });
+                  msg.content = decoded;
+                } catch {
+                  //
+                }
+              }
+            }
+            set({
+              messages: [...state.messages, ...newMsgs],
+              conversations: convs,
+            });
+          }
+        }
+
+        if (!hasNew) {
+          set({ conversations: convs });
+        }
+      } catch {
+        // silent poll failure
       }
-    },
+    }, POLL_INTERVAL);
+  },
 
-    getConversations: (myOnion) => {
-      const state = get();
-      const grouped: Record<string, Message[]> = {};
-      for (const msg of state.messages) {
-        if (!grouped[msg.contactOnion]) grouped[msg.contactOnion] = [];
-        grouped[msg.contactOnion].push(msg);
-      }
-      return Object.entries(grouped)
-        .map(([onion, msgs]) => {
-          const sorted = msgs.sort((a, b) => b.timestamp - a.timestamp);
-          return {
-            contactOnion: onion,
-            lastMessage: sorted[0].content,
-            lastTimestamp: sorted[0].timestamp,
-            unread: state.unreadCounts[onion] || 0,
-          };
-        })
-        .sort((a, b) => b.lastTimestamp - a.lastTimestamp);
-    },
-
-    getConversation: (contactOnion) => {
-      return get()
-        .messages.filter((m) => m.contactOnion === contactOnion)
-        .sort((a, b) => a.timestamp - b.timestamp);
-    },
-
-    markConversationRead: (contactOnion) => {
-      const unread = { ...get().unreadCounts, [contactOnion]: 0 };
-      saveUnread(unread);
-      set({ unreadCounts: unread });
-    },
-
-    setSelectedContact: (onion) => set({ selectedContact: onion }),
-
-    addIncomingMessage: (msg) => {
-      const state = get();
-      const exists = state.messages.some((m) => m.id === msg.id);
-      if (!exists) {
-        const newMessages = [...state.messages, msg];
-        saveToStorage(newMessages);
-        const unread = { ...state.unreadCounts };
-        unread[msg.contactOnion] = (unread[msg.contactOnion] || 0) + 1;
-        saveUnread(unread);
-        set({ messages: newMessages, unreadCounts: unread });
-      }
-    },
-
-    startPolling: (myOnion) => {
-      get().stopPolling();
-      const lastTs = get().lastPollTimestamp;
-      pollTimer = setInterval(() => {
-        pollMessages(myOnion, get().lastPollTimestamp);
-      }, POLL_INTERVAL);
-      pollMessages(myOnion, lastTs);
-    },
-
-    stopPolling: () => {
-      if (pollTimer !== null) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    },
-  };
-});
+  stopPolling: () => {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  },
+}));

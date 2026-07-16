@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, memo, useCallback } from "react";
 import { useContactStore, ContactPayload } from "../stores/contactStore";
 
-function ContactItem({
+const ContactItem = memo(function ContactItem({
   contact,
   onDelete,
   onVerify,
@@ -13,19 +13,19 @@ function ContactItem({
   onChat: (contact: ContactPayload) => void;
 }) {
   const displayName =
-    contact.local_nickname || contact.onion_address.slice(0, 16) + "...";
+    contact.localNickname || contact.onionAddress.slice(0, 16) + "...";
 
   const truncatedOnion =
-    contact.onion_address.length > 25
-      ? contact.onion_address.slice(0, 10) + "..." +
-        contact.onion_address.slice(-8)
-      : contact.onion_address;
+    contact.onionAddress.length > 25
+      ? contact.onionAddress.slice(0, 10) + "..." +
+        contact.onionAddress.slice(-8)
+      : contact.onionAddress;
 
   return (
     <div className="contact-item">
       <div className="contact-item-avatar">
         <div className="avatar-placeholder">
-          {(contact.local_nickname || "?")[0].toUpperCase()}
+          {(contact.localNickname || "?")[0].toUpperCase()}
         </div>
       </div>
 
@@ -35,14 +35,14 @@ function ContactItem({
       </div>
 
       <div className="contact-item-actions">
-        {contact.safety_verified ? (
+        {contact.safetyVerified ? (
           <span className="badge-verified" title="Safety verified">
             &#10003;
           </span>
         ) : (
           <button
             className="badge-unverified"
-            onClick={() => onVerify(contact.onion_address)}
+            onClick={() => onVerify(contact.onionAddress)}
             title="Not yet verified — click to verify"
           >
             &#9888;
@@ -50,7 +50,7 @@ function ContactItem({
         )}
         <button
           className="btn-delete-icon"
-          onClick={() => onDelete(contact.onion_address)}
+          onClick={() => onDelete(contact.onionAddress)}
           title="Delete contact"
         >
           &times;
@@ -58,28 +58,38 @@ function ContactItem({
       </div>
     </div>
   );
-}
+});
 
-export function ContactList() {
-  const { contacts, fetchContacts, deleteContact, verifyContact, openChat, setView } =
-    useContactStore();
+export const ContactList = memo(function ContactList() {
+  const contacts = useContactStore((s) => s.contacts);
+  const fetchContacts = useContactStore((s) => s.fetchContacts);
+  const deleteContact = useContactStore((s) => s.deleteContact);
+  const verifyContact = useContactStore((s) => s.verifyContact);
+  const openChat = useContactStore((s) => s.openChat);
+  const setView = useContactStore((s) => s.setView);
 
   useEffect(() => {
     fetchContacts();
-  }, []);
+  }, [fetchContacts]);
 
-  const handleDelete = async (onion: string) => {
-    if (window.confirm("Delete this contact?")) {
-      await deleteContact(onion);
-    }
-  };
+  const handleDelete = useCallback(
+    async (onion: string) => {
+      if (window.confirm("Delete this contact?")) {
+        await deleteContact(onion);
+      }
+    },
+    [deleteContact],
+  );
 
-  const handleVerify = async (onion: string) => {
-    const nickname = prompt("Has this contact been verified? Enter their nickname to confirm:");
-    if (nickname !== null) {
-      await verifyContact(onion);
-    }
-  };
+  const handleVerify = useCallback(
+    async (onion: string) => {
+      const nickname = prompt("Has this contact been verified? Enter their nickname to confirm:");
+      if (nickname !== null) {
+        await verifyContact(onion);
+      }
+    },
+    [verifyContact],
+  );
 
   return (
     <div className="contact-screen">
@@ -105,7 +115,7 @@ export function ContactList() {
         <div className="contact-list">
           {contacts.map((c) => (
             <ContactItem
-              key={c.onion_address}
+              key={c.onionAddress}
               contact={c}
               onDelete={handleDelete}
               onVerify={handleVerify}
@@ -126,4 +136,4 @@ export function ContactList() {
       )}
     </div>
   );
-}
+});

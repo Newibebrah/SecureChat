@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import { useMessageStore } from "../stores/messageStore";
-import { useContactStore, ContactPayload } from "../stores/contactStore";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useMessageStore, Message } from "../stores/messageStore";
+import { ContactPayload } from "../stores/contactStore";
 import { useIdentityStore } from "../stores/identityStore";
 
-function MessageBubble({ msg }: { msg: import("../stores/messageStore").Message }) {
+const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message }) {
   return (
     <div className={`msg ${msg.isOutgoing ? "msg-out" : "msg-in"}`}>
       <div className="msg-bubble">
@@ -37,9 +37,9 @@ function MessageBubble({ msg }: { msg: import("../stores/messageStore").Message 
       </div>
     </div>
   );
-}
+});
 
-export function ChatView({
+export const ChatView = memo(function ChatView({
   contact,
   onBack,
 }: {
@@ -48,33 +48,39 @@ export function ChatView({
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { sendMessage, getConversation, markConversationRead } =
-    useMessageStore();
-  const { identity } = useIdentityStore();
+  const messages = useMessageStore((s) => s.messages);
+  const sendMessage = useMessageStore((s) => s.sendMessage);
+  const markConversationRead = useMessageStore((s) => s.markConversationRead);
+  const identity = useIdentityStore((s) => s.identity);
 
   useEffect(() => {
-    markConversationRead(contact.onion_address);
-  }, []);
+    markConversationRead(contact.onionAddress);
+  }, [contact.onionAddress, markConversationRead]);
+
+  const conversation = messages
+    .filter((m) => m.contactOnion === contact.onionAddress)
+    .sort((a, b) => a.timestamp - b.timestamp);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [getConversation(contact.onion_address).length]);
+  }, [conversation.length]);
 
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || !identity) return;
     setInput("");
-    await sendMessage(contact.onion_address, trimmed, identity.onion_address);
-  };
+    await sendMessage(contact.onionAddress, trimmed, identity.onionAddress);
+  }, [input, identity, contact.onionAddress, sendMessage]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const messages = getConversation(contact.onion_address);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend],
+  );
 
   return (
     <div className="chat-view">
@@ -84,17 +90,17 @@ export function ChatView({
         </button>
         <div className="chat-header-info">
           <span className="chat-header-name">
-            {contact.local_nickname ||
-              contact.onion_address.slice(0, 16) + "..."}
+            {contact.localNickname ||
+              contact.onionAddress.slice(0, 16) + "..."}
           </span>
           <span className="chat-header-onion">
-            {contact.onion_address}
+            {contact.onionAddress}
           </span>
         </div>
       </div>
 
       <div className="chat-messages">
-        {messages.length === 0 && (
+        {conversation.length === 0 && (
           <div className="chat-empty">
             <p>No messages yet.</p>
             <p className="hint">
@@ -103,7 +109,7 @@ export function ChatView({
             </p>
           </div>
         )}
-        {messages.map((msg) => (
+        {conversation.map((msg) => (
           <MessageBubble key={msg.id} msg={msg} />
         ))}
         <div ref={messagesEndRef} />
@@ -129,4 +135,4 @@ export function ChatView({
       </div>
     </div>
   );
-}
+});

@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+use super::messages_repo;
+
 /// The database file name.
 const DB_FILENAME: &str = "anon-chat.db";
 
@@ -18,30 +20,24 @@ pub fn db_path() -> PathBuf {
 pub fn open_database() -> Result<Connection> {
     let path = db_path();
 
-    // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).context("Failed to create database directory")?;
     }
 
-    let conn = Connection::open(&path)
-        .context("Failed to open SQLite database")?;
+    let conn = Connection::open(&path).context("Failed to open SQLite database")?;
 
-    // Enable WAL mode for better concurrency
-    conn.execute_batch("PRAGMA journal_mode=WAL;")
-        .context("Failed to set WAL mode")?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;PRAGMA synchronous=NORMAL;PRAGMA foreign_keys=ON;")
+        .context("Failed to set pragmas")?;
 
-    // Run schema migrations
     run_migrations(&conn)?;
 
     Ok(conn)
 }
 
-/// Check if the database file exists on disk.
 pub fn database_exists() -> bool {
     db_path().exists()
 }
 
-/// Run any pending schema migrations.
 fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "
@@ -62,13 +58,16 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             onion_address   TEXT    NOT NULL UNIQUE,
             public_key      BLOB   NOT NULL CHECK (length(public_key) = 32),
+            x25519_public   BLOB   NOT NULL CHECK (length(x25519_public) = 32),
             local_nickname  TEXT   NOT NULL DEFAULT '',
             safety_verified INTEGER NOT NULL DEFAULT 0,
             created_at      TEXT   NOT NULL DEFAULT (datetime('now'))
         );
         ",
     )
-    .context("Failed to run database migrations")?;
+    .context("Failed to run base database migrations")?;
+
+    messages_repo::create_tables(conn)?;
 
     Ok(())
 }

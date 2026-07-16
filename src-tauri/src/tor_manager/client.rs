@@ -22,9 +22,10 @@ impl ArtiClientManager {
     /// On failure, sends TorStatus::Error and returns the error.
     pub async fn bootstrap(
         status_tx: watch::Sender<TorStatus>,
-        _state_dir: Option<PathBuf>,
+        state_dir: Option<PathBuf>,
     ) -> Result<AnonTorClient> {
-        let _state_dir = _state_dir.unwrap_or_else(Self::default_state_dir);
+        let _state_dir = state_dir.unwrap_or_else(Self::default_state_dir);
+        let _ = _state_dir; // state dir reserved for future isolation
 
         status_tx.send_modify(|s| {
             if matches!(s, TorStatus::Offline) {

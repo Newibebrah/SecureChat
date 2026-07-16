@@ -2,6 +2,7 @@ import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useIdentityStore } from "../stores/identityStore";
 import { hexToBase64 } from "../lib/tauri-core";
+import { PasswordStrengthIndicator } from "./PasswordStrengthIndicator";
 
 type Step = "password" | "generating" | "complete";
 
@@ -12,6 +13,8 @@ export function IdentitySetup() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const { createIdentity, identity, loading, error } = useIdentityStore();
+
+  const passwordTouched = password.length > 0;
 
   const handleCreate = async () => {
     setPasswordError(null);
@@ -57,8 +60,8 @@ export function IdentitySetup() {
           <div className="identity-qr">
             <QRCodeSVG
               value={JSON.stringify({
-                onion: identity.onion_address,
-                pubkey: hexToBase64(identity.public_key),
+                onion: identity.onionAddress,
+                pubkey: hexToBase64(identity.publicKey),
               })}
               size={200}
               bgColor="#ffffff"
@@ -69,7 +72,7 @@ export function IdentitySetup() {
 
           <div className="identity-detail">
             <label>Onion Address</label>
-            <code className="onion-address">{identity.onion_address}</code>
+            <code className="onion-address">{identity.onionAddress}</code>
           </div>
 
           <div className="identity-detail">
@@ -79,7 +82,7 @@ export function IdentitySetup() {
 
           <div className="identity-detail">
             <label>Public Key</label>
-            <code className="public-key">{identity.public_key.slice(0, 32)}...</code>
+            <code className="public-key">{identity.publicKey.slice(0, 32)}...</code>
           </div>
 
           <div className="setup-note">
@@ -134,6 +137,13 @@ export function IdentitySetup() {
               minLength={8}
             />
           </div>
+
+          {passwordTouched && (
+            <PasswordStrengthIndicator
+              password={password}
+              confirm={confirm}
+            />
+          )}
 
           {passwordError && <p className="error-text">{passwordError}</p>}
           {error && <p className="error-text">{error}</p>}
